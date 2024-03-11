@@ -1,0 +1,376 @@
+Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.SetErrorHandler("Main_Err")
+F.Intrinsic.Control.ClearErrors
+'Coded by AGM 12/10/2014
+'Quote 5953-4
+
+V.Local.sError.Declare(String)
+V.Local.bCheck.Declare(Boolean)
+
+
+F.Intrinsic.Control.SelectCase(V.Caller.Hook)
+
+	F.Intrinsic.Control.Case(11565)
+		'Sets Order Date to Global Variable.
+		V.Passed.GLOBAL.Set(V.Passed.000023)
+	F.Intrinsic.Control.Case(11872)
+		'If Order Date has been adjusted, when the Post Save Hook is fired... the Core Global Variable will retain the new order date value.
+		V.Passed.GLOBAL.Set(V.Passed.000023)
+	'Quick quote new line
+	F.Intrinsic.Control.Case(12120)
+		F.Intrinsic.Control.CallSub(Ordentrsub)
+	F.Intrinsic.Control.Case(10870)
+		V.Passed.GLOBAL.Set(V.Passed.000023)
+	'make calculation in quick quote line screen
+	F.Intrinsic.Control.Case(10370)
+		F.Intrinsic.Control.CallSub(Quickquotesub)
+	'populate hook
+	F.Intrinsic.Control.Case(17339)
+		F.Intrinsic.Control.CallSub(Snapshot)
+	F.Intrinsic.Control.Case(11560)
+		F.Intrinsic.Control.CallSub(Recalcpd)
+	'on exit delete snapshots
+	F.Intrinsic.Control.Case(17332)
+		F.Intrinsic.Control.CallSub(Exit)
+
+F.Intrinsic.Control.EndSelect
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Main_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_3880_Date_And_LeadTime.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.Main.End
+
+Program.Sub.OrdEntrSub.Start
+F.Intrinsic.Control.SetErrorHandler("OrdEntrSub_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+V.Local.iLong.Declare(Long)
+V.Local.iAvail.Declare(Long)
+V.Local.dDate.Declare(String)
+V.Local.dDateRet.Declare(String)
+V.Local.sRet.Declare(String)
+V.Local.sPart.Declare(String)
+V.Local.dDue.Declare(String)
+V.Local.sLoc.Declare(String)
+
+'12/9/2014
+'Call info Date shows up as 20141202
+
+V.Local.sSQL.Declare(String)
+
+F.ODBC.Connection!conx.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+
+
+'F.Intrinsic.Control.If(V.Caller.Hook,<>,"12120")
+'	F.Intrinsic.String.Build("SELECT DATE_DUE FROM V_ORDER_HEADER WHERE ORDER_NO = '{0}' ",V.Passed.000060.format0000000,V.Local.sSQL)
+'	F.ODBC.Connection!conx.OpenLocalRecordsetRO("rst",V.Local.sSQL)
+'	F.Intrinsic.Control.If(V.ODBC.conx!rst.EOF,=,False)
+'		V.Local.dDue.Set(V.ODBC.conx!rst.FieldVal!DATE_DUE)
+'		F.Intrinsic.String.Format(V.Local.dDue,"YYYYMMDD",V.Local.dDate)
+'		F.Intrinsic.Control.If(V.Passed.000011,<>,V.Local.dDate,"AND",V.Passed.000011,<>,"00000000")
+'			F.ODBC.conx!rst.Close
+'			F.Intrinsic.Control.ExitSub
+'		F.Intrinsic.Control.EndIf
+'	F.Intrinsic.Control.EndIf
+'	F.ODBC.conx!rst.Close
+'F.Intrinsic.Control.EndIf
+
+F.Intrinsic.String.GSSPartString(V.Passed.000052,V.Passed.000053,V.Local.sPart)
+V.Local.sLoc.Set(V.Passed.000054)
+'Calculates and displays Available Qty
+F.Intrinsic.String.Build("SELECT TIME_MATERIAL_LEAD, (QTY_ONHAND-QTY_REQUIRED) AS AVAILABLE_QTY FROM INVENTORY_MSTR WHERE PART = '{0}' and LOCATION = '{1}' ",V.Local.sPart,V.Local.sLoc,V.Local.sSQL)
+'F.Intrinsic.String.Build("SELECT TIME_MATERIAL_LEAD, (QTY_ONHAND-QTY_REQUIRED) AS AVAILABLE_QTY FROM INVENTORY_MSTR WHERE PART = '\{0\}'",V.Passed.000052,V.Local.sSQL)
+F.ODBC.Connection!conx.OpenLocalRecordsetRO("rst",V.Local.sSQL)
+
+F.Intrinsic.Control.If(V.ODBC.conx!rst.EOF,=,False)
+
+	F.Intrinsic.Control.If(V.ODBC.conx!rst.FieldValTrim!AVAILABLE_QTY,=,"")
+		V.Local.iAvail.Set(0)
+	F.Intrinsic.Control.Else
+		V.Local.iAvail.Set(V.ODBC.conx!rst.FieldValTrim!AVAILABLE_QTY)
+'OFI uses 000219 as available qty instead of qty on hand
+'		V.Local.iAvail.Set(V.Passed.000219)
+	F.Intrinsic.Control.EndIf
+
+	'If Order Qty is less than or equal to Available Qty, then the Order Date will be set in the Promise Date Field
+	F.Intrinsic.Control.If(V.Passed.000007,<=,V.Local.iAvail)
+		V.Local.dDate.Set(V.Passed.GLOBAL)
+		F.Intrinsic.Date.ConvertDString(V.Local.dDate,"YYYY/MM/DD",V.Local.dDateRet)
+		V.Passed.000011.Set(V.Local.dDateRet)
+		
+	'If Order Qty is MORE than Available Qty, then add the lead days to Promise Date
+	F.Intrinsic.Control.ElseIf(V.Passed.000007,>,V.Local.iAvail)
+
+		F.Intrinsic.Control.If(V.ODBC.conx!rst.FieldValTrim!TIME_MATERIAL_LEAD,=,"")
+			V.Local.iLong.set(0)
+		F.Intrinsic.Control.Else
+			V.Local.iLong.Set(V.ODBC.conx!rst.FieldValTrim!TIME_MATERIAL_LEAD)
+		F.Intrinsic.Control.EndIf
+
+		V.Local.dDate.Set(V.Passed.GLOBAL)
+		F.Intrinsic.Date.ConvertDString(V.Local.dDate,"YYYY/MM/DD",V.Local.dDateRet)
+		F.Intrinsic.Date.DateAdd("D",V.Local.iLong,V.Local.dDateRet,V.Local.dDateRet)
+		V.Passed.000011.Set(V.Local.dDateRet)
+	F.Intrinsic.Control.EndIf
+
+
+'F.Intrinsic.String.Build("SELECT DATE_ITEM_PROM, ITEM_PROMISE_DT FROM ORDER_LINES WHERE ORDER_NO = '{0}' AND PART = '{1}' AND RECORD_TYPE = 'L' ",V.Passed.000060.Format0000000,V.Local.sPart,V.Local.sSQL)
+'F.ODBC.Connection!conx.OpenLocalRecordsetRW("rstUpdate",V.Local.sSQL)
+'F.Intrinsic.Control.If(V.ODBC.conx!rstUpdate.EOF,=,False)
+'	F.Intrinsic.String.Split(V.Local.dDateRet,"/",V.Local.dDateRet)
+'	F.Intrinsic.String.Build("{0}{1}{2}",V.Local.dDateRet(2),V.Local.dDateRet(0),V.Local.dDateRet(1),V.Local.dDate)
+'	F.ODBC.conx!rstUpdate.Set!DATE_ITEM_PROM(V.Local.dDate)
+'	F.Intrinsic.String.Build("{0}{1}{2}",V.Local.dDateRet(0),V.Local.dDateRet(1),V.Local.dDateRet(2).right2,V.Local.dDate)
+'	F.ODBC.conx!rstUpdate.Set!ITEM_PROMISE_DT(V.Local.dDate)
+'	F.ODBC.conx!rstUpdate.Update
+'F.Intrinsic.Control.EndIf
+'F.ODBC.conx!rstUpdate.Close
+
+F.Intrinsic.Control.EndIf
+
+F.ODBC.conx!rst.Close
+F.ODBC.Connection!conx.Close
+F.Intrinsic.Control.End
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("OrdEntrSub_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_3880_Date_And_LeadTime.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.OrdEntrSub.End
+
+Program.Sub.QuickQuoteSub.Start
+F.Intrinsic.Control.SetErrorHandler("OrdEntrSub_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+V.Local.iLong.Declare(Long)
+V.Local.iAvail.Declare(Long)
+V.Local.dDate.Declare(String)
+V.Local.dDateRet.Declare(String)
+V.Local.sRet.Declare(String)
+V.Local.sPart.Declare(String)
+V.Local.sLoc.Declare(String)
+'12/9/2014
+'Call info Date shows up as 20141202
+
+V.Local.sSQL.Declare(String)
+
+F.ODBC.Connection!conx.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+F.Intrinsic.String.GSSPartString(V.Passed.000052,V.Passed.000053,V.Local.sPart)
+V.Local.sLoc.Set(V.Passed.000054)
+'Calculates and displays Available Qty
+'F.Intrinsic.String.Build("SELECT TIME_MATERIAL_LEAD, (QTY_ONHAND-QTY_REQUIRED) AS AVAILABLE_QTY FROM INVENTORY_MSTR WHERE PART = '{0}'",V.Passed.000052,V.Local.sSQL)
+F.Intrinsic.String.Build("SELECT TIME_MATERIAL_LEAD, (QTY_ONHAND-QTY_REQUIRED) AS AVAILABLE_QTY FROM INVENTORY_MSTR WHERE PART = '{0}' AND LOCATION = '{1}' ",V.Local.sPart,V.Local.sLoc,V.Local.sSQL)
+
+F.ODBC.Connection!conx.OpenLocalRecordsetRO("rst",V.Local.sSQL)
+F.Intrinsic.Control.If(V.ODBC.conx!rst.EOF,=,False)
+	F.Intrinsic.Control.If(V.ODBC.conx!rst.FieldValTrim!AVAILABLE_QTY,=,"")
+		V.Local.iAvail.Set(0)
+	F.Intrinsic.Control.Else
+		V.Local.iAvail.Set(V.ODBC.conx!rst.FieldValTrim!AVAILABLE_QTY)
+	F.Intrinsic.Control.EndIf
+
+
+		'If Order Qty is less than or equal to Available Qty, then the Order Date will be set in the Promise Date Field
+		F.Intrinsic.Control.If(V.Passed.000007,=<,V.Local.iAvail)
+			V.Local.dDate.Set(V.Passed.GLOBAL)
+			F.Intrinsic.Date.ConvertDString(V.Local.dDate,"MM/DD/YY",V.Local.dDateRet)
+			V.Passed.000011.Set(V.Local.dDateRet)
+			
+		'If Order Qty is MORE than Available Qty, then add the lead days to Promise Date
+		F.Intrinsic.Control.ElseIf(V.Passed.000007,>,V.Local.iAvail)
+
+			F.Intrinsic.Control.If(V.ODBC.conx!rst.FieldValTrim!TIME_MATERIAL_LEAD,=,"")
+				V.Local.iLong.set(0)
+			F.Intrinsic.Control.Else
+				V.Local.iLong.Set(V.ODBC.conx!rst.FieldValTrim!TIME_MATERIAL_LEAD)
+			F.Intrinsic.Control.EndIf
+
+			V.Local.dDate.Set(V.Passed.GLOBAL)
+			F.Intrinsic.Date.ConvertDString(V.Local.dDate,"MM/DD/YY",V.Local.dDateRet)
+			F.Intrinsic.Date.DateAdd("D",V.Local.iLong,V.Local.dDateRet,V.Local.dDateRet)
+			V.Passed.000011.Set(V.Local.dDateRet)
+
+		F.Intrinsic.Control.EndIf
+	
+F.Intrinsic.Control.EndIf
+
+F.ODBC.conx!rst.Close
+F.ODBC.Connection!conx.Close
+F.Intrinsic.Control.End
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("OrdEntrSub_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_3880_Date_And_LeadTime.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+
+
+Program.Sub.QuickQuoteSub.End
+
+Program.Sub.Snapshot.Start
+F.Intrinsic.Control.SetErrorHandler("Snapshot_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+V.Local.sSQL.Declare(String)
+
+F.ODBC.Connection!conx.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+'grabs all data before any change and puts it into a snapshot table for later use.
+F.Intrinsic.String.Build("SELECT QUOTE_NO, RECORD_NO, PART, LOCATION,QUOTE_WON, QTY_QUOTED FROM V_QUOTE_LINES WHERE QUOTE_NO = '{0}' AND RECORD_TYPE = 'L' ",V.Passed.Quote.format0000000,V.Local.sSQL)
+F.ODBC.Connection!conx.OpenLocalRecordsetRO("rst",V.Local.sSQL)
+F.ODBC.Connection!conx.OpenLocalRecordsetRW("rstAdd","SELECT * FROM GCG_3880_QUOTESNAPSHOT")
+F.Intrinsic.Control.DoUntil(V.ODBC.conx!rst.EOF,=,True)
+	F.ODBC.conx!rstAdd.AddNew
+	F.ODBC.conx!rstAdd.Set!QUOTE_NO(V.ODBC.conx!rst.FieldVal!QUOTE_NO)
+	F.ODBC.conx!rstAdd.Set!RECORD_NO(V.ODBC.conx!rst.FieldVal!RECORD_NO)
+	F.ODBC.conx!rstAdd.Set!PART(V.ODBC.conx!rst.FieldVal!PART)
+	F.ODBC.conx!rstAdd.Set!QUOTE_WON(V.ODBC.conx!rst.FieldVal!QUOTE_WON)
+	F.ODBC.conx!rstAdd.Set!TERMINAL(V.Caller.Terminal)
+	F.ODBC.conx!rstAdd.Set!ORDER_QTY(V.ODBC.conx!rst.FieldVal!QTY_QUOTED)
+	F.ODBC.conx!rstAdd.Set!LOCATION(V.ODBC.conx!rst.FieldVal!LOCATION)
+	F.ODBC.conx!rstAdd.Update
+	F.ODBC.conx!rst.MoveNext
+F.Intrinsic.Control.Loop
+
+F.ODBC.conx!rst.Close
+F.ODBC.conx!rstAdd.Close
+F.ODBC.Connection!conx.Close
+
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Snapshot_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_3880_Date_And_LeadTime.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.Snapshot.End
+
+Program.Sub.Exit.Start
+F.Intrinsic.Control.SetErrorHandler("Exit_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+V.Local.sSQL.Declare(String)
+F.ODBC.Connection!conx.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+F.Intrinsic.String.Build("DELETE FROM GCG_3880_QUOTESNAPSHOT WHERE TERMINAL = '{0}'",V.Caller.Terminal,V.local.sSQL)
+F.ODBC.Connection!conx.Execute(V.Local.sSQL)
+F.ODBC.Connection!conx.Close
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Exit_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_3880_Date_And_LeadTime.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.Exit.End
+
+Program.Sub.RecalcPD.Start
+F.Intrinsic.Control.SetErrorHandler("RecalcPD_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+ V.Local.sSQL.Declare(String)
+V.Local.dDate.Declare(Date)
+V.Local.sDate.Declare(String)
+V.Local.sTemp.Declare(String)
+
+F.ODBC.Connection!conx.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+
+'if order number is blank exit
+F.Intrinsic.Control.If(V.Passed.000003,=,"")
+	F.Intrinsic.Control.CallSub(Exit)
+F.Intrinsic.Control.EndIf
+
+'check to make sure that the order number on the screen relates to the quote number in the snapshot table
+'if they match then keep going
+F.Intrinsic.String.Build("SELECT QUOTE FROM V_ORDER_HEADER WHERE ORDER_NO = '{0}' ",V.Passed.000003.format0000000,V.Local.sSQL)
+F.ODBC.Connection!conx.OpenLocalRecordsetRO("rst",V.Local.sSQL)
+F.Intrinsic.Control.If(V.ODBC.conx!rst.EOF,=,False)
+	F.Intrinsic.String.Build("SELECT * FROM GCG_3880_QUOTESNAPSHOT WHERE QUOTE_NO = '{0}' AND TERMINAL = '{1}' ",V.ODBC.conx!rst.FieldVal!QUOTE,V.Caller.Terminal,V.Local.sSQL)
+	F.ODBC.Connection!conx.OpenLocalRecordsetRO("rstCheck",V.Local.sSQL)
+	F.Intrinsic.Control.DoUntil(V.ODBC.conx!rstCheck.EOF,=,True)
+		F.Intrinsic.String.Build("SELECT QTY_ORDERED, DATE_ITEM_PROM, ITEM_PROMISE_DT FROM ORDER_LINES WHERE ORDER_NO = '{0}' AND PART = '{1}' AND RECORD_TYPE = 'L' ",V.Passed.000003.format0000000,V.ODBC.conx!rstCheck.FieldVal!PART,V.Local.sSQL)
+		F.ODBC.Connection!conx.OpenLocalRecordsetRW("rstUpdate",V.Local.sSQL)
+		F.Intrinsic.Control.If(V.ODBC.conx!rstUpdate.EOF,=,False)
+			F.Intrinsic.String.Build("SELECT TIME_MATERIAL_LEAD, QTY_ONHAND AS AVAILABLE_QTY FROM INVENTORY_MSTR WHERE PART = '{0}' AND LOCATION = '{1}'  ",V.ODBC.conx!rstCheck.FieldVal!PART,V.ODBC.conx!rstCheck.FieldVal!LOCATION,V.Local.sSQL)
+			F.ODBC.Connection!conx.OpenLocalRecordsetRO("rstLead",V.Local.sSQL)
+			F.Intrinsic.Control.If(V.ODBC.conx!rstLead.EOF,=,False)
+				'create date format
+				F.Intrinsic.String.Mid(V.Passed.000023,5,2,V.Local.sDate)
+				F.Intrinsic.String.Right(V.Passed.000023,2,V.Local.sTemp)
+				F.Intrinsic.String.Build("{0}/{1}/",V.Local.sDate,V.Local.sTemp,V.Local.sDate)
+				F.Intrinsic.String.Left(V.Passed.000023,4,V.Local.sTemp)
+				F.Intrinsic.String.Build("{0}{1}",V.Local.sDate,V.Local.sTemp,V.Local.dDate)
+
+				F.Intrinsic.Control.If(V.ODBC.conx!rstUpdate.FieldVal!QTY_ORDERED,>,V.ODBC.conx!rstLead.FieldVal!AVAILABLE_QTY)
+					'MORE THAN WE HAVE USE LEAD TIME
+					F.Intrinsic.Date.DateAdd("d",V.ODBC.conx!rstLead.FieldVal!TIME_MATERIAL_LEAD,V.Local.dDate,V.Local.dDate)
+					F.ODBC.conx!rstUpdate.Set!DATE_ITEM_PROM(V.Local.dDate.formatyyyyMMdd)
+					F.ODBC.conx!rstUpdate.Set!ITEM_PROMISE_DT(V.Local.dDate.formatMMddyy)
+					F.ODBC.conx!rstUpdate.Update
+				F.Intrinsic.Control.Else
+					'WE HAVE PLENTY SET TODAY
+					F.ODBC.conx!rstUpdate.Set!DATE_ITEM_PROM(V.Local.dDate.formatyyyyMMdd)
+					F.ODBC.conx!rstUpdate.Set!ITEM_PROMISE_DT(V.Local.dDate.formatmmddyy)
+					F.ODBC.conx!rstUpdate.Update
+				F.Intrinsic.Control.EndIf
+			F.Intrinsic.Control.EndIf
+			F.ODBC.conx!rstLead.Close
+		F.Intrinsic.Control.EndIf
+		F.ODBC.conx!rstUpdate.Close
+		F.ODBC.conx!rstCheck.MoveNext
+	F.Intrinsic.Control.Loop
+	F.ODBC.conx!rstCheck.Close
+F.Intrinsic.Control.EndIf
+F.ODBC.conx!rst.Close
+
+
+F.Intrinsic.String.Build("DELETE FROM GCG_3880_QUOTESNAPSHOT WHERE TERMINAL = '{0}'",V.Caller.Terminal,V.local.sSQL)
+F.ODBC.Connection!conx.Execute(V.Local.sSQL)
+F.ODBC.Connection!conx.Close
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("RecalcPD_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_3880_Date_And_LeadTime.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Exit)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.RecalcPD.End
+
+Program.Sub.Comments.Start
+${$0$}$$}$AGM$}$12/9/2014 1:03:59 PM
+Program.Sub.Comments.End
+
